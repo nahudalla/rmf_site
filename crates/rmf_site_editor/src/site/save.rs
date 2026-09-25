@@ -785,20 +785,24 @@ fn generate_lifts(
         return false;
     };
 
-    let validate_site_anchor = |anchor| {
+    let validate_site_anchor = |object: Entity, anchor: Entity| {
         if confirm_entity_parent(site, anchor) {
             return Ok(());
         }
 
+        let (Ok(site_id), Ok(anchor_id)) = (q_site_id.get(site), q_site_id.get(anchor)) else {
+            return Err(SiteGenerationError::BrokenAnchorReference { object, anchor });
+        };
+
         Err(SiteGenerationError::InvalidAnchorReference {
-            site: q_site_id.get(site).unwrap().0,
-            anchor: q_site_id.get(anchor).unwrap().0,
+            site: site_id.0,
+            anchor: anchor_id.0,
         })
     };
 
-    let validate_site_anchors = |edge: &Edge<Entity>| {
-        validate_site_anchor(edge.left())?;
-        validate_site_anchor(edge.right())?;
+    let validate_site_anchors = |object: Entity, edge: &Edge<Entity>| {
+        validate_site_anchor(object, edge.left())?;
+        validate_site_anchor(object, edge.right())?;
         Ok(())
     };
 
@@ -821,7 +825,7 @@ fn generate_lifts(
         };
 
         let edge = o_edge.map(|x| &x.0).unwrap_or(edge);
-        validate_site_anchors(edge)?;
+        validate_site_anchors(lift_entity, edge)?;
 
         let validate_level_door_anchor = |door: Entity, anchor: Entity| {
             if confirm_entity_parent(anchor_group_entity, anchor) {
@@ -1997,6 +2001,41 @@ mod tests {
     use crate::*;
     use std::{path::Path, time::Duration};
     use testdir::testdir;
+
+    #[test]
+    fn generate_lifts_reports_foreign_anchor_without_panicking() {
+        use crate::site::*;
+
+        let mut world = World::new();
+        // As in the real editor, the site root entity never has a SiteID (see
+        // load.rs, where the site is spawned with only Transform, Visibility,
+        // Category::Site, and WorkspaceMarker). The lift's anchor does not
+        // belong to the site, so the error should name the lift, not the site.
+        let site = world.spawn_empty().id();
+        let foreign_anchor = world.spawn_empty().id();
+        let lift = world
+            .spawn((
+                NameInSite("lift".to_owned()),
+                Edge::new(foreign_anchor, foreign_anchor),
+                LiftCabin::<Entity>::default(),
+                IsStatic(false),
+                InitialLevel::<Entity>::default(),
+                SiteID(1),
+                ChildOf(site),
+            ))
+            .id();
+        world.spawn((CabinAnchorGroup, ChildOf(lift)));
+
+        let result = super::generate_lifts(&mut world, site);
+        assert!(
+            matches!(
+                result,
+                Err(SiteGenerationError::BrokenAnchorReference { object, anchor })
+                    if object == lift && anchor == foreign_anchor
+            ),
+            "unexpected result: {result:?}",
+        );
+    }
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
