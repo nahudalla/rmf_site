@@ -17,6 +17,7 @@
 
 use crate::{layers::ZLayer, site::*};
 use crate::{CurrentWorkspace, Issue, ValidateWorkspace};
+use bevy::ecs::query::QueryEntityError;
 use bevy::ecs::{hierarchy::ChildOf, relationship::AncestorIter};
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
@@ -109,6 +110,21 @@ pub fn add_lane_visuals(
     mut extended_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, LaneArrowMaterial>>>,
 ) {
     for (e, motion, reverse, recall, edge, associated_graphs) in &lanes {
+        let start_anchor = match anchors.point_in_parent_frame_of(edge.start(), Category::Lane, e) {
+            Ok(p) => p,
+            Err(err) => {
+                error!("Unable to find start anchor for lane {e:?}: {err}");
+                continue;
+            }
+        };
+        let end_anchor = match anchors.point_in_parent_frame_of(edge.end(), Category::Lane, e) {
+            Ok(p) => p,
+            Err(err) => {
+                error!("Unable to find end anchor for lane {e:?}: {err}");
+                continue;
+            }
+        };
+
         for anchor in &edge.array() {
             if let Ok(mut deps) = dependents.get_mut(*anchor) {
                 deps.insert(e);
@@ -128,13 +144,6 @@ pub fn add_lane_visuals(
         } else {
             Visibility::Hidden
         };
-
-        let start_anchor = anchors
-            .point_in_parent_frame_of(edge.start(), Category::Lane, e)
-            .unwrap();
-        let end_anchor = anchors
-            .point_in_parent_frame_of(edge.end(), Category::Lane, e)
-            .unwrap();
 
         // Create a "layer" entity that manages the height offset of the lane,
         // determined by its nav graph rank.
@@ -263,13 +272,9 @@ fn update_lane_visuals(
     transforms: &mut Query<&mut Transform>,
     lane_materials: Query<&MeshMaterial3d<ExtendedMaterial<StandardMaterial, LaneArrowMaterial>>>,
     extended_materials: &mut ResMut<Assets<ExtendedMaterial<StandardMaterial, LaneArrowMaterial>>>,
-) {
-    let start_anchor = anchors
-        .point_in_parent_frame_of(edge.left(), Category::Lane, entity)
-        .unwrap();
-    let end_anchor = anchors
-        .point_in_parent_frame_of(edge.right(), Category::Lane, entity)
-        .unwrap();
+) -> Result<(), QueryEntityError> {
+    let start_anchor = anchors.point_in_parent_frame_of(edge.left(), Category::Lane, entity)?;
+    let end_anchor = anchors.point_in_parent_frame_of(edge.right(), Category::Lane, entity)?;
 
     if let Some(mut tf) = transforms.get_mut(segments.start).ok() {
         *tf = Transform::from_translation(start_anchor);
@@ -287,6 +292,7 @@ fn update_lane_visuals(
     if let Some(mut tf) = transforms.get_mut(segments.end).ok() {
         *tf = Transform::from_translation(end_anchor);
     }
+    Ok(())
 }
 
 pub fn update_lane_motion_visuals(
@@ -349,7 +355,7 @@ pub fn update_changed_lane(
     current_level: Res<CurrentLevel>,
 ) {
     for (e, edge, associated, segments, mut visibility) in &mut lanes {
-        update_lane_visuals(
+        if let Err(err) = update_lane_visuals(
             e,
             edge,
             segments,
@@ -357,7 +363,9 @@ pub fn update_changed_lane(
             &mut transforms,
             lane_materials,
             &mut extended_materials,
-        );
+        ) {
+            error!("Unable to update lane visuals for {e:?}: {err}");
+        }
 
         let new_visibility = if should_display_lane(
             edge,
@@ -395,7 +403,7 @@ pub fn update_lane_for_moved_anchor(
     for dependents in &changed_anchors {
         for dependent in dependents.iter() {
             if let Ok((e, edge, segments)) = lanes.get(*dependent) {
-                update_lane_visuals(
+                if let Err(err) = update_lane_visuals(
                     e,
                     edge,
                     segments,
@@ -403,7 +411,9 @@ pub fn update_lane_for_moved_anchor(
                     &mut transforms,
                     lane_materials,
                     &mut extended_materials,
-                );
+                ) {
+                    error!("Unable to update lane visuals for {e:?}: {err}");
+                }
             }
         }
     }

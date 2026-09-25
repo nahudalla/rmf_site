@@ -16,6 +16,7 @@
 */
 
 use crate::{layers::ZLayer, site::*};
+use bevy::ecs::query::QueryEntityError;
 use bevy::prelude::*;
 use rmf_site_format::{Edge, MeasurementMarker};
 use rmf_site_picking::Selectable;
@@ -32,15 +33,21 @@ pub fn add_measurement_visuals(
     assets: Res<SiteAssets>,
 ) {
     for (e, edge, tf) in &measurements {
-        let mut transform = line_stroke_transform(
-            &anchors
-                .point_in_parent_frame_of(edge.start(), Category::Measurement, e)
-                .unwrap(),
-            &anchors
-                .point_in_parent_frame_of(edge.end(), Category::Measurement, e)
-                .unwrap(),
-            LANE_WIDTH,
-        );
+        let start = match anchors.point_in_parent_frame_of(edge.start(), Category::Measurement, e) {
+            Ok(p) => p,
+            Err(err) => {
+                error!("Unable to find start anchor for measurement {e:?}: {err}");
+                continue;
+            }
+        };
+        let end = match anchors.point_in_parent_frame_of(edge.end(), Category::Measurement, e) {
+            Ok(p) => p,
+            Err(err) => {
+                error!("Unable to find end anchor for measurement {e:?}: {err}");
+                continue;
+            }
+        };
+        let mut transform = line_stroke_transform(&start, &end, LANE_WIDTH);
 
         transform.translation.z = ZLayer::Measurement.to_z();
 
@@ -80,16 +87,14 @@ fn update_measurement_visual(
     edge: &Edge<Entity>,
     anchors: &AnchorParams,
     transform: &mut Transform,
-) {
-    let start_anchor = anchors
-        .point_in_parent_frame_of(edge.start(), Category::Measurement, entity)
-        .unwrap();
-    let end_anchor = anchors
-        .point_in_parent_frame_of(edge.end(), Category::Measurement, entity)
-        .unwrap();
+) -> Result<(), QueryEntityError> {
+    let start_anchor =
+        anchors.point_in_parent_frame_of(edge.start(), Category::Measurement, entity)?;
+    let end_anchor = anchors.point_in_parent_frame_of(edge.end(), Category::Measurement, entity)?;
     let z = transform.translation.z;
     *transform = line_stroke_transform(&start_anchor, &end_anchor, LANE_WIDTH);
     transform.translation.z = z;
+    Ok(())
 }
 
 pub fn update_changed_measurement(
@@ -102,7 +107,9 @@ pub fn update_changed_measurement(
 ) {
     for (edge, segment) in &measurements {
         if let Ok(mut tf) = transforms.get_mut(**segment) {
-            update_measurement_visual(**segment, edge, &anchors, tf.as_mut());
+            if let Err(err) = update_measurement_visual(**segment, edge, &anchors, tf.as_mut()) {
+                error!("Unable to update measurement visual {:?}: {err}", **segment);
+            }
         }
     }
 }
@@ -123,7 +130,11 @@ pub fn update_measurement_for_moved_anchors(
         for dependent in changed_anchor.iter() {
             if let Some((measurement, segment)) = measurements.get(*dependent).ok() {
                 if let Ok(mut tf) = transforms.get_mut(**segment) {
-                    update_measurement_visual(**segment, measurement, &anchors, tf.as_mut());
+                    if let Err(err) =
+                        update_measurement_visual(**segment, measurement, &anchors, tf.as_mut())
+                    {
+                        error!("Unable to update measurement visual {:?}: {err}", **segment);
+                    }
                 }
             }
         }
