@@ -161,35 +161,63 @@ fn handle_view_menu_events(
     mut menu_items: Query<&mut MenuItem>,
     mut events: VisibilityEvents,
 ) {
-    let mut toggle = |entity| {
-        let mut menu = menu_items.get_mut(entity).unwrap();
-        let value = menu.checkbox_value_mut().unwrap();
+    let mut toggle = |entity| -> Option<bool> {
+        let mut menu = match menu_items.get_mut(entity) {
+            Ok(menu) => menu,
+            Err(err) => {
+                error!("View menu item {entity:?} does not exist: {err}");
+                return None;
+            }
+        };
+        let Some(value) = menu.checkbox_value_mut() else {
+            error!("View menu item {entity:?} is not a checkbox");
+            return None;
+        };
         *value = !*value;
-        *value
+        Some(*value)
     };
     for event in menu_events.read() {
         if event.clicked() && event.source() == view_menu.doors {
-            events.doors.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.doors.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.floors {
-            events.floors.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.floors.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.lanes {
-            events.lanes.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.lanes.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.lifts {
-            let value = toggle(event.source());
-            events.lift_cabins.write(value.into());
-            events.lift_cabin_doors.write(value.into());
+            if let Some(v) = toggle(event.source()) {
+                events.lift_cabins.write(v.into());
+                events.lift_cabin_doors.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.locations {
-            events.locations.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.locations.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.fiducials {
-            events.fiducials.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.fiducials.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.measurements {
-            events.measurements.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.measurements.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.collisions {
-            events.collisions.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.collisions.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.visuals {
-            events.visuals.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.visuals.write(v.into());
+            }
         } else if event.clicked() && event.source() == view_menu.walls {
-            events.walls.write(toggle(event.source()).into());
+            if let Some(v) = toggle(event.source()) {
+                events.walls.write(v.into());
+            }
         }
     }
 }

@@ -29,6 +29,22 @@ const BILLBOARD_BASE_OFFSET: Vec3 = Vec3::new(0., 0., BILLBOARD_LENGTH / 3. * 0.
 const BILLBOARD_EMPTY_OFFSET: Vec3 = Vec3::new(0., 0., BILLBOARD_LENGTH * 0.5);
 const BILLBOARD_MARGIN: Vec3 = Vec3::new(0., 0., BILLBOARD_LENGTH * 0.9);
 
+/// Make a per-billboard copy of a template material so its alpha can be
+/// adjusted independently. Falls back to sharing the template handle if the
+/// template asset is missing.
+fn copy_billboard_material(
+    materials: &mut Assets<StandardMaterial>,
+    template: &Handle<StandardMaterial>,
+) -> Handle<StandardMaterial> {
+    match materials.get(template).cloned() {
+        Some(material) => materials.add(material),
+        None => {
+            error!("Missing billboard template material {template:?}; sharing it instead");
+            template.clone()
+        }
+    }
+}
+
 #[derive(Component, Clone, Copy, Default)]
 pub struct BillboardMeshes {
     pub base: Option<Entity>,
@@ -76,6 +92,14 @@ pub fn add_location_visuals(
     current_level: Res<CurrentLevel>,
 ) {
     for (e, point, associated_graphs) in &locations {
+        let position = match anchors.point_in_parent_frame_of(point.0, Category::Location, e) {
+            Ok(p) => p + ZLayer::Location.to_z() * Vec3::Z,
+            Err(err) => {
+                error!("Unable to find anchor for location {e:?}: {err}");
+                continue;
+            }
+        };
+
         if let Ok(mut deps) = dependents.get_mut(point.0) {
             deps.insert(e);
         }
@@ -93,11 +117,6 @@ pub fn add_location_visuals(
         } else {
             Visibility::Hidden
         };
-
-        let position = anchors
-            .point_in_parent_frame_of(point.0, Category::Location, e)
-            .unwrap()
-            + ZLayer::Location.to_z() * Vec3::Z;
 
         commands
             .entity(e)
@@ -130,9 +149,13 @@ pub fn update_changed_location(
     current_level: Res<CurrentLevel>,
 ) {
     for (e, point, associated, mut visibility, mut tf) in &mut locations {
-        let position = anchors
-            .point_in_parent_frame_of(point.0, Category::Location, e)
-            .unwrap();
+        let position = match anchors.point_in_parent_frame_of(point.0, Category::Location, e) {
+            Ok(p) => p,
+            Err(err) => {
+                error!("Unable to find anchor for location {e:?}: {err}");
+                continue;
+            }
+        };
         tf.translation = position;
         tf.translation.z = ZLayer::Location.to_z();
 
@@ -168,9 +191,14 @@ pub fn update_location_for_moved_anchors(
     for dependents in &changed_anchors {
         for dependent in dependents.iter() {
             if let Ok((e, point, mut tf)) = locations.get_mut(*dependent) {
-                let position = anchors
-                    .point_in_parent_frame_of(point.0, Category::Location, e)
-                    .unwrap();
+                let position =
+                    match anchors.point_in_parent_frame_of(point.0, Category::Location, e) {
+                        Ok(p) => p,
+                        Err(err) => {
+                            error!("Unable to find anchor for location {e:?}: {err}");
+                            continue;
+                        }
+                    };
                 tf.translation = position;
                 tf.translation.z = ZLayer::Location.to_z();
             }
@@ -262,14 +290,12 @@ pub fn update_location_for_changed_location_tags(
         if no_billboards && billboard_meshes.empty_billboard.is_none() {
             // If no location tags exist and no empty billboard marker spawned, spawn empty billboard marker
             let id = commands.spawn_empty().id();
-            let new_material = materials
-                .get(&assets.empty_billboard_material)
-                .unwrap()
-                .clone();
+            let new_material =
+                copy_billboard_material(&mut materials, &assets.empty_billboard_material);
 
             commands.entity(id).insert((
                 Mesh3d(assets.billboard_mesh.clone()),
-                MeshMaterial3d(materials.add(new_material)),
+                MeshMaterial3d(new_material),
                 BillboardMarker {
                     caption_text: None,
                     offset: BILLBOARD_EMPTY_OFFSET,
@@ -340,13 +366,13 @@ pub fn update_location_for_changed_location_tags(
                 LocationTag::Workcell(_) => continue,
             };
 
-            let new_material = materials.get(material_handle).unwrap().clone();
+            let new_material = copy_billboard_material(&mut materials, material_handle);
 
             commands.entity(id).insert((
                 Mesh3d(assets.billboard_mesh.clone()),
                 // A separate copy of the material is created for each billboard
                 // because we adjust their alpha properties during interaction.
-                MeshMaterial3d(materials.add(new_material)),
+                MeshMaterial3d(new_material),
                 BillboardMarker {
                     caption_text: Some(text),
                     offset: offset,
@@ -381,13 +407,13 @@ pub fn update_location_for_changed_location_tags(
             }
 
             if make_new_billboard {
-                let material = materials.get(&assets.lockpad_material).unwrap().clone();
+                let material = copy_billboard_material(&mut materials, &assets.lockpad_material);
                 let id = commands
                     .spawn((
                         Mesh3d(assets.billboard_mesh.clone()),
                         // A separate copy of the material is created for each billboard
                         // because we adjust their alpha properties during interaction.
-                        MeshMaterial3d(materials.add(material)),
+                        MeshMaterial3d(material),
                         BillboardMarker {
                             caption_text: Some(mutex_group_text),
                             offset: offset,

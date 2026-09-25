@@ -42,8 +42,12 @@ pub fn handle_new_primitive_shapes(
     mut commands: Commands,
     primitives: Query<(Entity, &PrimitiveShape), Added<PrimitiveShape>>,
     child_of: Query<&ChildOf>,
-    selectables: Query<&Selectable>,
-    interactions: Query<(Option<&Draggable>, Option<&DragPlane>, Option<&DragAxis>)>,
+    selectables: Query<(
+        &Selectable,
+        Option<&Draggable>,
+        Option<&DragPlane>,
+        Option<&DragAxis>,
+    )>,
     render_layers: Query<&RenderLayers>,
     mut meshes: ResMut<Assets<Mesh>>,
     site_assets: Res<SiteAssets>,
@@ -73,25 +77,23 @@ pub fn handle_new_primitive_shapes(
 
         let spawn_selectable = |mut cmd: EntityCommands| {
             // Get the first ancestor of the shape that is selectable (i.e. interactable).
-            let Some((parent, selectable)) = AncestorIter::new(&child_of, e)
-                .filter_map(|p| {
-                    if let Some(selectable) = selectables.get(p).ok() {
-                        Some((p, selectable))
-                    } else {
-                        None
-                    }
-                })
-                .next()
+            let Some((_parent, selectable, draggable, drag_plane, drag_axis)) =
+                AncestorIter::new(&child_of, e)
+                    .filter_map(|p| {
+                        selectables.get(p).ok().map(
+                            |(selectable, draggable, drag_plane, drag_axis)| {
+                                (p, selectable, draggable, drag_plane, drag_axis)
+                            },
+                        )
+                    })
+                    .next()
             else {
                 return;
             };
 
             cmd.insert(*selectable);
 
-            // Copy the selection behaviors of this ancestor to the primitive shape
-            // SAFETY: All the components we query for are optional, so this query
-            // will always succeed.
-            let (draggable, drag_plane, drag_axis) = interactions.get(parent).unwrap();
+            // Copy the selection behaviors of this ancestor to the primitive shape.
             if let Some(draggable) = draggable {
                 cmd.insert(*draggable);
             }

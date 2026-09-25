@@ -99,9 +99,14 @@ pub fn add_drawing_visuals(
         // Append file name to path if it's a local file
         // TODO(luca) cleanup
         let asset_source = match source {
-            AssetSource::Local(name) => AssetSource::Local(String::from(
-                file_path.with_file_name(name).to_str().unwrap(),
-            )),
+            AssetSource::Local(name) => {
+                let path = file_path.with_file_name(name);
+                let Some(path) = path.to_str() else {
+                    error!("Unable to load drawing {e:?}: the path {path:?} is not valid UTF-8");
+                    continue;
+                };
+                AssetSource::Local(path.to_owned())
+            }
             _ => source.clone(),
         };
         let asset_path = match String::try_from(&asset_source) {
@@ -156,7 +161,14 @@ pub fn handle_loaded_drawing(
         };
         match load_state {
             LoadState::Loaded => {
-                let img = assets.get(&handle.0).unwrap();
+                let Some(img) = assets.get(&handle.0) else {
+                    error!(
+                        "Drawing {entity:?} with source {source:?} finished loading \
+                        but its image is missing"
+                    );
+                    commands.entity(entity).remove::<LoadingDrawing>();
+                    continue;
+                };
                 let width = img.texture_descriptor.size.width as f32;
                 let height = img.texture_descriptor.size.height as f32;
 
