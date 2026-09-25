@@ -17,7 +17,7 @@
 
 use crate::{issue::*, layers::ZLayer, site::*};
 use bevy::{
-    ecs::{hierarchy::ChildOf, relationship::AncestorIter},
+    ecs::{hierarchy::ChildOf, query::QueryEntityError, relationship::AncestorIter},
     prelude::*,
 };
 use bevy_rich_text3d::*;
@@ -254,13 +254,9 @@ fn make_door_visuals(
     kind: &DoorType,
     bottom: f32,
     top: f32,
-) -> (Transform, Vec<Transform>, Mesh, f32, Vec3) {
-    let p_start = anchors
-        .point_in_parent_frame_of(edge.left(), Category::Door, entity)
-        .unwrap();
-    let p_end = anchors
-        .point_in_parent_frame_of(edge.right(), Category::Door, entity)
-        .unwrap();
+) -> Result<(Transform, Vec<Transform>, Mesh, f32, Vec3), QueryEntityError> {
+    let p_start = anchors.point_in_parent_frame_of(edge.left(), Category::Door, entity)?;
+    let p_end = anchors.point_in_parent_frame_of(edge.right(), Category::Door, entity)?;
 
     let dp = p_start - p_end;
     let length = dp.length();
@@ -284,7 +280,7 @@ fn make_door_visuals(
 
     let name_scale = Vec3::new(1.0 / door_tfs[0].scale.z, 1.0 / door_tfs[0].scale.y, 1.0);
 
-    (
+    Ok((
         Transform {
             translation: Vec3::new(center.x, center.y, 0.),
             rotation: Quat::from_rotation_z(yaw),
@@ -294,7 +290,7 @@ fn make_door_visuals(
         cue,
         length,
         name_scale,
-    )
+    ))
 }
 
 fn door_slide_stop_line(y: f32) -> MeshBuffer {
@@ -520,7 +516,13 @@ pub fn add_door_visuals(
         let top = top.for_level_height(level_height);
 
         let (pose_tf, door_tfs, cue_mesh, door_length, name_scale) =
-            make_door_visuals(e, edge, &anchors, kind, bottom, top);
+            match make_door_visuals(e, edge, &anchors, kind, bottom, top) {
+                Ok(visuals) => visuals,
+                Err(err) => {
+                    error!("Unable to create visuals for door {e:?}: {err}");
+                    continue;
+                }
+            };
 
         let bodies = door_tfs
             .iter()
@@ -611,12 +613,32 @@ fn update_door_visuals(
     assets: &Res<SiteAssets>,
 ) -> Option<DoorBodyType> {
     let (pose_tf, door_tfs, cue_mesh, door_length, child_scale) =
-        make_door_visuals(entity, edge, anchors, kind, bottom, top);
-    let mut door_transform = transforms.get_mut(entity).unwrap();
+        match make_door_visuals(entity, edge, anchors, kind, bottom, top) {
+            Ok(visuals) => visuals,
+            Err(err) => {
+                error!("Unable to update visuals for door {entity:?}: {err}");
+                return None;
+            }
+        };
+    let mut door_transform = match transforms.get_mut(entity) {
+        Ok(door_transform) => door_transform,
+        Err(err) => {
+            error!("Unable to update transform of door {entity:?}: {err}");
+            return None;
+        }
+    };
     *door_transform = pose_tf;
     let mut entities = segments.body.entities();
     for (door_tf, e) in door_tfs.iter().zip(entities.iter()) {
-        let mut door_transform = transforms.get_mut(*e).unwrap();
+        let mut door_transform = match transforms.get_mut(*e) {
+            Ok(door_transform) => door_transform,
+            Err(err) => {
+                error!(
+                    "Unable to update transform of body segment {e:?} for door {entity:?}: {err}"
+                );
+                continue;
+            }
+        };
         *door_transform = *door_tf;
     }
 
@@ -650,8 +672,17 @@ fn update_door_visuals(
         // Doors were removed, we need to despawn them
         commands.entity(*e).despawn();
     }
-    let mut cue = mesh_handles.get_mut(segments.cue).unwrap();
-    *cue = Mesh3d(mesh_assets.add(cue_mesh));
+    match mesh_handles.get_mut(segments.cue) {
+        Ok(mut cue) => {
+            *cue = Mesh3d(mesh_assets.add(cue_mesh));
+        }
+        Err(err) => {
+            error!(
+                "Unable to update cue mesh {:?} for door {entity:?}: {err}",
+                segments.cue
+            );
+        }
+    }
     let new_segments = DoorBodyType::from_door_type(kind, &entities);
     if new_segments != segments.body {
         Some(new_segments)

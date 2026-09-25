@@ -17,7 +17,7 @@
 
 use crate::{layers::ZLayer, site::*, CurrentWorkspace, Issue, ValidateWorkspace};
 use bevy::{
-    ecs::{hierarchy::ChildOf, relationship::AncestorIter},
+    ecs::{hierarchy::ChildOf, query::QueryEntityError, relationship::AncestorIter},
     prelude::*,
     render::primitives::Aabb,
 };
@@ -95,13 +95,11 @@ fn make_lift_transform(
     entity: Entity,
     reference_anchors: &Edge<Entity>,
     anchors: &AnchorParams,
-) -> Transform {
-    let p_start = anchors
-        .point_in_parent_frame_of(reference_anchors.start(), Category::Lift, entity)
-        .unwrap();
-    let p_end = anchors
-        .point_in_parent_frame_of(reference_anchors.end(), Category::Lift, entity)
-        .unwrap();
+) -> Result<Transform, QueryEntityError> {
+    let p_start =
+        anchors.point_in_parent_frame_of(reference_anchors.start(), Category::Lift, entity)?;
+    let p_end =
+        anchors.point_in_parent_frame_of(reference_anchors.end(), Category::Lift, entity)?;
     let (p_start, p_end) = if reference_anchors.left() == reference_anchors.right() {
         (p_start, p_start - DEFAULT_CABIN_WIDTH * Vec3::Y)
     } else {
@@ -112,11 +110,11 @@ fn make_lift_transform(
     let yaw = (-dp.x).atan2(dp.y);
     let center = (p_start + p_end) / 2.0;
 
-    Transform {
+    Ok(Transform {
         translation: Vec3::new(center.x, center.y, 0.),
         rotation: Quat::from_rotation_z(yaw),
         ..default()
-    }
+    })
 }
 
 pub fn add_tags_to_lift(
@@ -372,9 +370,12 @@ pub fn update_lift_cabin(
         };
 
         match cabin_anchor_group {
-            Some(group) => {
-                *cabin_anchor_groups.get_mut(group).unwrap() = cabin_tf;
-            }
+            Some(group) => match cabin_anchor_groups.get_mut(group) {
+                Ok(mut group_tf) => *group_tf = cabin_tf,
+                Err(err) => {
+                    error!("Unable to update cabin anchor group {group:?} of lift {e:?}: {err}")
+                }
+            },
             None => {
                 let group = commands
                     .spawn((cabin_tf, Visibility::Inherited))
@@ -397,7 +398,10 @@ pub fn update_lift_edge(
     anchors: AnchorParams,
 ) {
     for (e, edge, mut tf) in &mut lifts {
-        *tf = make_lift_transform(e, edge, &anchors);
+        match make_lift_transform(e, edge, &anchors) {
+            Ok(new_tf) => *tf = new_tf,
+            Err(err) => error!("Unable to update transform of lift {e:?}: {err}"),
+        }
     }
 }
 
@@ -415,7 +419,10 @@ pub fn update_lift_for_moved_anchors(
     for changed_anchor in &changed_anchors {
         for dependent in changed_anchor.iter() {
             if let Ok((e, edge, mut tf)) = lifts.get_mut(*dependent) {
-                *tf = make_lift_transform(e, edge, &anchors);
+                match make_lift_transform(e, edge, &anchors) {
+                    Ok(new_tf) => *tf = new_tf,
+                    Err(err) => error!("Unable to update transform of lift {e:?}: {err}"),
+                }
             }
         }
     }
@@ -476,13 +483,23 @@ pub fn update_lift_door_availability(
                                     new_door,
                                     params.width.min(params.depth) / 2.0,
                                 ));
-                                let anchors =
-                                    params.level_door_anchors(face).unwrap().map(|anchor| {
-                                        commands
-                                            .spawn(AnchorBundle::new(anchor))
-                                            .insert(Subordinate(Some(toggle.for_lift)))
-                                            .id()
-                                    });
+                                let Some(level_door_anchors) = params.level_door_anchors(face)
+                                else {
+                                    error!(
+                                        "Unable to compute level door anchors for lift {:?} \
+                                        on face {face:?}",
+                                        toggle.for_lift,
+                                    );
+                                    *params.door_mut(face) = None;
+                                    commands.entity(new_door).despawn();
+                                    continue;
+                                };
+                                let anchors = level_door_anchors.map(|anchor| {
+                                    commands
+                                        .spawn(AnchorBundle::new(anchor))
+                                        .insert(Subordinate(Some(toggle.for_lift)))
+                                        .id()
+                                });
 
                                 for anchor in anchors {
                                     commands.entity(**anchor_group).add_child(anchor);
