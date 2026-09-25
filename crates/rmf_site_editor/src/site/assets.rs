@@ -178,7 +178,7 @@ pub fn billboard_material(base_color_texture: Handle<Image>) -> StandardMaterial
 
 impl FromWorld for SiteAssets {
     fn from_world(world: &mut World) -> Self {
-        let asset_server = world.get_resource::<AssetServer>().unwrap();
+        let asset_server = world.get_resource::<AssetServer>().unwrap(); // startup
         let base_billboard_texture =
             asset_server.load("embedded://rmf_site_editor/site/textures/base.png");
         let charger_texture =
@@ -198,7 +198,7 @@ impl FromWorld for SiteAssets {
 
         let mut materials = world
             .get_resource_mut::<Assets<StandardMaterial>>()
-            .unwrap();
+            .unwrap(); // startup
         let unassigned_lane_material = materials.add(old_default_material(NAV_UNASSIGNED_COLOR));
         let select_material = materials.add(old_default_material(SELECT_COLOR));
         let hover_material = materials.add(old_default_material(HOVER_COLOR));
@@ -290,7 +290,7 @@ impl FromWorld for SiteAssets {
         let lockpad_material = materials.add(billboard_material(lockpad_texture));
         let empty_billboard_material = materials.add(billboard_material(empty_billboard_texture));
 
-        let mut meshes = world.get_resource_mut::<Assets<Mesh>>().unwrap();
+        let mut meshes = world.get_resource_mut::<Assets<Mesh>>().unwrap(); // startup
         let billboard_base_mesh =
             meshes.add(Rectangle::new(BILLBOARD_LENGTH, BILLBOARD_LENGTH / 3.0));
         let billboard_mesh: Handle<Mesh> =
@@ -300,7 +300,7 @@ impl FromWorld for SiteAssets {
                 primitives::Sphere::new(0.05), // TODO(MXG): Make the vertex radius configurable
             )
             .with_generated_outline_normals()
-            .unwrap(),
+            .unwrap(), // startup
         );
         let lift_anchor_mesh = meshes
             .add(Mesh::from(make_diamond(0.15 / 2.0, 0.15).transform_by(
@@ -328,14 +328,14 @@ impl FromWorld for SiteAssets {
         let box_mesh = meshes.add(
             Mesh::from(primitives::Cuboid::new(1., 1., 1.))
                 .with_generated_outline_normals()
-                .unwrap(),
+                .unwrap(), // startup
         );
         let location_mesh = meshes.add(
             Mesh::from(Torus::new(LANE_WIDTH / 2.0, 1.4 * LANE_WIDTH / 2.0))
                 .rotated_by(Quat::from_rotation_x(90_f32.to_radians()))
                 .scaled_by(Vec3::new(1.0, 1.0, 0.3))
                 .with_generated_outline_normals()
-                .unwrap(),
+                .unwrap(), // startup
         );
         let fiducial_mesh = meshes.add(
             Mesh::from(
@@ -344,13 +344,13 @@ impl FromWorld for SiteAssets {
                 ),
             )
             .with_generated_outline_normals()
-            .unwrap(),
+            .unwrap(), // startup
         );
         let location_tag_mesh = meshes.add(make_location_icon(1.1 * LANE_WIDTH / 2.0, 0.01, 6));
         let physical_camera_mesh = meshes.add(
             make_physical_camera_mesh()
                 .with_generated_outline_normals()
-                .unwrap(),
+                .unwrap(), // startup
         );
 
         let robot_path_rectangle_mesh = meshes.add(Rectangle::new(1.0, 1.0));

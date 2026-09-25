@@ -55,7 +55,7 @@ impl FromWorld for ModelPropertyData {
             world
                 .components()
                 .component_id::<ModelProperty<AssetSource>>()
-                .unwrap(),
+                .unwrap(), // startup
             (
                 "Asset Source".to_string(),
                 get_insert_model_property_fn::<ModelProperty<AssetSource>>(),
@@ -67,7 +67,7 @@ impl FromWorld for ModelPropertyData {
             world
                 .components()
                 .component_id::<ModelProperty<Scale>>()
-                .unwrap(),
+                .unwrap(), // startup
             (
                 "Scale".to_string(),
                 get_insert_model_property_fn::<ModelProperty<Scale>>(),
@@ -79,7 +79,7 @@ impl FromWorld for ModelPropertyData {
             world
                 .components()
                 .component_id::<ModelProperty<IsStatic>>()
-                .unwrap(),
+                .unwrap(), // startup
             (
                 "Is Static".to_string(),
                 get_insert_model_property_fn::<IsStatic>(),
