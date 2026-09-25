@@ -945,11 +945,10 @@ fn generate_imported_nav_graphs(
     for (lift_id, lift_data) in &from_site_data.lifts {
         if let Some(e) = lift_name_to_entity.get(&lift_data.properties.name.0) {
             id_to_entity.insert(*lift_id, *e);
-            if let Some(e_group) = params
-                .lifts
-                .get(*e)
-                .unwrap()
-                .3
+            let Ok((_, _, _, lift_children)) = params.lifts.get(*e) else {
+                return Err(ImportNavGraphError::BrokenSiteReference);
+            };
+            if let Some(e_group) = lift_children
                 .iter()
                 .find(|child| params.cabin_anchor_groups.contains(*child))
             {
@@ -968,12 +967,20 @@ fn generate_imported_nav_graphs(
 
     let anchor_close_enough = 0.05;
     for (lift_id, lift_data) in &from_site_data.lifts {
-        let lift_e = *id_to_entity.get(lift_id).unwrap();
-        let anchor_group = *lift_to_anchor_group.get(&lift_e).unwrap();
-        let existing_lift_anchors: Vec<(Entity, &Anchor)> = params
-            .cabin_anchor_groups
-            .get(anchor_group)
-            .unwrap()
+        let Some(lift_e) = id_to_entity.get(lift_id).copied() else {
+            return Err(ImportNavGraphError::BrokenInternalReference(*lift_id));
+        };
+        let Some(anchor_group) = lift_to_anchor_group.get(&lift_e).copied() else {
+            return Err(ImportNavGraphError::MissingCabinAnchorGroup(
+                lift_data.properties.name.0.clone(),
+            ));
+        };
+        let Ok(anchor_group_children) = params.cabin_anchor_groups.get(anchor_group) else {
+            return Err(ImportNavGraphError::MissingCabinAnchorGroup(
+                lift_data.properties.name.0.clone(),
+            ));
+        };
+        let existing_lift_anchors: Vec<(Entity, &Anchor)> = anchor_group_children
             .iter()
             .filter_map(|child| params.anchors.get(child).ok())
             .collect();
@@ -997,12 +1004,13 @@ fn generate_imported_nav_graphs(
     }
 
     for (level_id, level_data) in &from_site_data.levels {
-        let level_e = *id_to_entity.get(level_id).unwrap();
-        let existing_level_anchors: Vec<(Entity, &Anchor)> = params
-            .levels
-            .get(level_e)
-            .unwrap()
-            .3
+        let Some(level_e) = id_to_entity.get(level_id).copied() else {
+            return Err(ImportNavGraphError::BrokenInternalReference(*level_id));
+        };
+        let Ok((_, _, _, level_children)) = params.levels.get(level_e) else {
+            return Err(ImportNavGraphError::BrokenSiteReference);
+        };
+        let existing_level_anchors: Vec<(Entity, &Anchor)> = level_children
             .iter()
             .filter_map(|child| params.anchors.get(child).ok())
             .collect();
