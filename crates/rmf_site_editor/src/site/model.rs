@@ -68,7 +68,8 @@ pub fn get_all_for_source(source: &AssetSource) -> Vec<AssetSource> {
     match source {
         AssetSource::Search(name) => {
             let split: SmallVec<[&str; 8]> = name.split('/').collect();
-            let model_name = split.last().unwrap();
+            // str::split always yields at least one item, so this never falls back.
+            let model_name = split.last().copied().unwrap_or(name.as_str());
             let mut paths = common_model_directory_layouts(&name, model_name);
 
             if split.len() == 1 {
@@ -1063,5 +1064,25 @@ pub fn check_for_orphan_model_instances(
             let issue_id = commands.spawn(issue).id();
             commands.entity(**root).add_child(issue_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_all_for_source_handles_names_with_and_without_slash() {
+        let bare = get_all_for_source(&AssetSource::Search("model".to_owned()));
+        assert!(!bare.is_empty());
+        assert!(bare
+            .iter()
+            .any(|source| format!("{:?}", source).contains("model")));
+
+        let scoped = get_all_for_source(&AssetSource::Search("org/model".to_owned()));
+        assert!(!scoped.is_empty());
+        assert!(scoped
+            .iter()
+            .any(|source| format!("{:?}", source).contains("model")));
     }
 }

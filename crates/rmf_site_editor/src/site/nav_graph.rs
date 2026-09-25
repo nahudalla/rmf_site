@@ -54,27 +54,10 @@ impl<'w, 's> GraphSelect<'w, 's> {
                 .map(|(_, m, c, _, d)| (m.clone(), *c, *d)),
             AssociatedGraphs::Only(set) => set
                 .iter()
-                .filter(|e| {
-                    self.graphs
-                        .get(**e)
-                        .ok()
-                        .filter(|(_, _, _, v, _)| !matches!(v, Visibility::Hidden))
-                        .is_some()
-                })
-                .max_by(|a, b| {
-                    self.graphs
-                        .get(**a)
-                        .unwrap()
-                        .4
-                        .cmp(self.graphs.get(**b).unwrap().4)
-                })
-                .map(|e| {
-                    self.graphs
-                        .get(*e)
-                        .map(|(_, m, c, _, d)| (m.clone(), *c, *d))
-                        .ok()
-                })
-                .flatten(),
+                .filter_map(|e| self.graphs.get(*e).ok())
+                .filter(|(_, _, _, v, _)| !matches!(v, Visibility::Hidden))
+                .max_by(|(_, _, _, _, a), (_, _, _, _, b)| a.cmp(b))
+                .map(|(_, m, c, _, d)| (m.clone(), *c, *d)),
             AssociatedGraphs::AllExcept(set) => self
                 .graphs
                 .iter()
