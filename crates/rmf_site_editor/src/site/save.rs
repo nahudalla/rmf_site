@@ -1999,7 +1999,11 @@ pub fn save_site(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use std::{path::Path, time::Duration};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        path::Path,
+        time::Duration,
+    };
     use testdir::testdir;
 
     #[test]
@@ -2147,6 +2151,89 @@ mod tests {
 
         // At the end of a successful test we should delete the testdir.
         // This will avoid accumulating disk space with each test run.
+        let _ = std::fs::remove_dir_all(target_test_dir);
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn headless_legacy_building_load_and_save() {
+        use rmf_site_format::legacy::building_map::BuildingMap;
+
+        let target_test_dir = testdir!();
+        // Go from crates/rmf_site_editor to the workspace root directory
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let workspace_dir = Path::new(&manifest_dir).parent().unwrap().parent().unwrap();
+        let assets_dir = workspace_dir.join("assets");
+        let source = assets_dir.join("demo_maps").join("office.building.yaml");
+
+        let original = target_test_dir.join("office.building.yaml");
+        let destination = target_test_dir.join("office.site.json");
+        std::fs::copy(&source, &original).unwrap();
+
+        #[cfg(unix)]
+        {
+            // Avoid noisy asset errors while loading; the test passes without it.
+            // Note: the drawing image office.png referenced by the legacy map is
+            // not in the repository, so an error about it is logged and expected.
+            let _ = std::os::unix::fs::symlink(
+                assets_dir.join("models"),
+                target_test_dir.join("models"),
+            );
+            let _ = std::os::unix::fs::symlink(
+                assets_dir.join("drawings"),
+                target_test_dir.join("drawings"),
+            );
+        }
+
+        let destination_str = destination.to_str().unwrap().to_owned();
+        let mut app = App::new();
+        app.insert_resource(Autoload::file(original.clone(), None))
+            .add_plugins(SiteEditor::default().save_as_path(Some(destination_str)))
+            .add_plugins(TestTimeoutPlugin::new(Duration::from_secs(30)));
+        app.run();
+
+        assert!(std::fs::exists(&destination).unwrap());
+        let saved =
+            rmf_site_format::Site::from_bytes_json(&std::fs::read(&destination).unwrap()).unwrap();
+        let expected = BuildingMap::from_bytes(&std::fs::read(&original).unwrap())
+            .unwrap()
+            .to_site()
+            .unwrap();
+
+        assert_eq!(saved.levels.len(), expected.levels.len());
+        // Pair levels by name rather than relying on map iteration order, since
+        // level IDs are not guaranteed to line up between the saved and expected sites.
+        fn by_name(
+            levels: &BTreeMap<u32, rmf_site_format::Level>,
+        ) -> BTreeMap<String, &rmf_site_format::Level> {
+            levels
+                .values()
+                .map(|level| (level.properties.name.0.clone(), level))
+                .collect()
+        }
+        let saved_by_name = by_name(&saved.levels);
+        let expected_by_name = by_name(&expected.levels);
+        assert_eq!(
+            saved_by_name.keys().collect::<BTreeSet<_>>(),
+            expected_by_name.keys().collect::<BTreeSet<_>>(),
+        );
+        let measurements = |level: &rmf_site_format::Level| -> usize {
+            level.drawings.values().map(|d| d.measurements.len()).sum()
+        };
+        for (name, saved_level) in &saved_by_name {
+            let expected_level = expected_by_name[name];
+            assert_eq!(saved_level.doors.len(), expected_level.doors.len());
+            assert_eq!(measurements(saved_level), measurements(expected_level));
+        }
+        assert_eq!(
+            saved.navigation.guided.lanes.len(),
+            expected.navigation.guided.lanes.len()
+        );
+        assert_eq!(
+            saved.navigation.guided.locations.len(),
+            expected.navigation.guided.locations.len()
+        );
+
         let _ = std::fs::remove_dir_all(target_test_dir);
     }
 
