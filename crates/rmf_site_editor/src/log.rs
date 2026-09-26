@@ -17,7 +17,7 @@
 
 use bevy::log::tracing::{field::Field, Level};
 use bevy::prelude::*;
-use crossbeam_channel::{unbounded, Receiver, SendError, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Write};
 use tracing_subscriber::{field::Visit, prelude::*, EnvFilter, Layer};
@@ -317,14 +317,14 @@ where
         };
 
         let log = Log { category, message };
-        let send_message = self.sender.send(log);
-        match send_message {
-            Ok(()) => match send_message {
-                Ok(()) => (),
-                Err(e) => error!("Unable to send log: {:?}", e),
-            },
-            Err(SendError(e)) => error!("Unable to send log: {:?}", e),
-        }
+        // A send only fails when the LogHistory receiving these logs has been
+        // dropped. The global subscriber can only be set once per process, so
+        // after the first app's LogHistory is dropped (e.g. when several
+        // headless apps run in one test process), logs are no longer forwarded
+        // to the log console of later apps. Do not report the failure through
+        // tracing: this layer would receive that event too, fail to send it
+        // again, and recurse forever.
+        let _ = self.sender.send(log);
     }
 }
 
